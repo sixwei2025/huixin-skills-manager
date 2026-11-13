@@ -208,6 +208,23 @@ enum SkillSourceCategory: String, CaseIterable, Hashable {
     case shared
 }
 
+/// The four peer-level origin buckets shown inside every AI agent tab.
+enum SkillOriginCategory: String, CaseIterable, Hashable {
+    case builtin
+    case plugin
+    case selfDeveloped
+    case thirdParty
+
+    var title: String {
+        switch self {
+        case .builtin: return "内置技能"
+        case .plugin: return "插件技能"
+        case .selfDeveloped: return "自开发技能"
+        case .thirdParty: return "其他开发者技能"
+        }
+    }
+}
+
 struct SkillConflictSummary: Hashable {
     let triggerMatchCount: Int
     let nameMatchCount: Int
@@ -357,6 +374,22 @@ enum SkillSource: Hashable {
             return .builtin
         case .pi(.shared):
             return .shared
+        }
+    }
+
+    /// Maps each harness's physical source into the common four-bucket UI.
+    /// User/shared/project skills default to self-developed; a small number of
+    /// adapted third-party skills are promoted by Skill.originCategory.
+    var defaultOriginCategory: SkillOriginCategory {
+        switch self {
+        case .claudeCode(.plugin), .codexCLI(.plugin):
+            return .plugin
+        case .codexCLI(.builtin):
+            return .builtin
+        case .claudeCode, .pi, .workbuddy:
+            return .selfDeveloped
+        case .codexCLI(.user):
+            return .selfDeveloped
         }
     }
 

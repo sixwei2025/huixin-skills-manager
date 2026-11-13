@@ -123,6 +123,28 @@ struct Skill: Identifiable, Hashable {
             return "Available in Pi when working in \(root.name), once the project is trusted."
         }
     }
+
+    /// Common origin bucket used by all AI-agent tabs. Most local user skills
+    /// are Yuan's own suites; preserve a clear third-party bucket for adapted
+    /// open-source skills without changing their physical paths.
+    var originCategory: SkillOriginCategory {
+        if source.defaultOriginCategory != .selfDeveloped {
+            return source.defaultOriginCategory
+        }
+
+        let normalized = "\(path)\n\(body)".lowercased()
+        let thirdPartyMarkers = [
+            "alchaincyf",
+            "基于花叔",
+            "原作者",
+            "开源项目适配",
+            "adapted from"
+        ]
+        if thirdPartyMarkers.contains(where: normalized.contains) {
+            return .thirdParty
+        }
+        return .selfDeveloped
+    }
 }
 
 

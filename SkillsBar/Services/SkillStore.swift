@@ -1945,91 +1945,29 @@ final class SkillStore: ObservableObject {
     }
 
     private func buildGroups(from skills: [Skill]) -> [SkillGroup] {
-        var claudeUserSkills: [Skill] = []
-        var claudePluginSkills: [Skill] = []
-        var claudeProjectSkillsByRoot: [ProjectSkillRoot: [Skill]] = [:]
-        var codexBuiltinSkills: [Skill] = []
-        var codexPluginSkills: [Skill] = []
-        var codexUserSkills: [Skill] = []
-        var workbuddySkills: [Skill] = []
-        var piUserSkills: [Skill] = []
-        var piSharedSkills: [Skill] = []
-        var piProjectSkillsByRoot: [ProjectSkillRoot: [Skill]] = [:]
-
-        for skill in skills {
-            switch skill.source {
-            case .claudeCode(.user): claudeUserSkills.append(skill)
-            case .claudeCode(.plugin): claudePluginSkills.append(skill)
-            case .claudeCode(.project(let root)): claudeProjectSkillsByRoot[root, default: []].append(skill)
-            case .codexCLI(.builtin): codexBuiltinSkills.append(skill)
-            case .codexCLI(.plugin): codexPluginSkills.append(skill)
-            case .codexCLI(.user): codexUserSkills.append(skill)
-            case .workbuddy: workbuddySkills.append(skill)
-            case .pi(.user): piUserSkills.append(skill)
-            case .pi(.shared): piSharedSkills.append(skill)
-            case .pi(.project(let root)): piProjectSkillsByRoot[root, default: []].append(skill)
-            }
-        }
-
         var groups: [SkillGroup] = []
 
-        var claudeSections = [
-            claudeUserSkills.isEmpty ? nil : SkillSection(id: "claude-user", title: "用户技能", skills: sortSkills(claudeUserSkills)),
-        ].compactMap { $0 }
+        let agentDefinitions: [(id: String, title: String, matches: (Skill) -> Bool)] = [
+            ("claude-code", "Gemini", { if case .claudeCode = $0.source { return true }; return false }),
+            ("codex-cli", "Codex", { if case .codexCLI = $0.source { return true }; return false }),
+            ("pi", "Grok Bot", { if case .pi = $0.source { return true }; return false }),
+            ("workbuddy", "WorkBuddy", { if case .workbuddy = $0.source { return true }; return false }),
+        ]
 
-        let projectSections = orderedProjectSkillRoots.compactMap { root -> SkillSection? in
-            guard let skills = claudeProjectSkillsByRoot[root], !skills.isEmpty else { return nil }
-            return
-                SkillSection(
-                    id: "claude-project-\(root.id.uuidString)",
-                    title: "\(root.name) Project Skills",
-                    skills: sortSkills(skills)
+        for definition in agentDefinitions {
+            let agentSkills = skills.filter(definition.matches)
+            guard !agentSkills.isEmpty else { continue }
+
+            let sections = SkillOriginCategory.allCases.compactMap { origin -> SkillSection? in
+                let matching = agentSkills.filter { $0.originCategory == origin }
+                guard !matching.isEmpty else { return nil }
+                return SkillSection(
+                    id: "\(definition.id)-\(origin.rawValue)",
+                    title: origin.title,
+                    skills: sortSkills(matching)
                 )
-        }
-
-        claudeSections.append(contentsOf: projectSections)
-
-        if !claudePluginSkills.isEmpty {
-            claudeSections.append(SkillSection(id: "claude-plugin", title: "插件技能", skills: sortSkills(claudePluginSkills)))
-        }
-
-        if !claudeSections.isEmpty {
-            groups.append(SkillGroup(id: "claude-code", title: "Gemini", sections: claudeSections))
-        }
-
-        let codexSections = [
-            codexUserSkills.isEmpty ? nil : SkillSection(id: "codex-user", title: "用户技能", skills: sortSkills(codexUserSkills)),
-            codexPluginSkills.isEmpty ? nil : SkillSection(id: "codex-plugin", title: "插件技能", skills: sortSkills(codexPluginSkills)),
-            codexBuiltinSkills.isEmpty ? nil : SkillSection(id: "codex-builtin", title: "内置技能", skills: sortSkills(codexBuiltinSkills)),
-        ].compactMap { $0 }
-
-        if !codexSections.isEmpty {
-            groups.append(SkillGroup(id: "codex-cli", title: "Codex", sections: codexSections))
-        }
-
-        var piSections = [
-            piUserSkills.isEmpty ? nil : SkillSection(id: "pi-user", title: "用户技能", skills: sortSkills(piUserSkills)),
-        ].compactMap { $0 }
-
-        piSections.append(contentsOf: orderedProjectSkillRoots.compactMap { root -> SkillSection? in
-            guard let skills = piProjectSkillsByRoot[root], !skills.isEmpty else { return nil }
-            return SkillSection(
-                id: "pi-project-\(root.id.uuidString)",
-                title: "\(root.name) Project Skills",
-                skills: sortSkills(skills)
-            )
-        })
-
-        if !piSharedSkills.isEmpty {
-            piSections.append(SkillSection(id: "pi-shared", title: "共享技能", skills: sortSkills(piSharedSkills)))
-        }
-
-        if !piSections.isEmpty {
-            groups.append(SkillGroup(id: "pi", title: "Grok Bot", sections: piSections))
-        }
-
-        if !workbuddySkills.isEmpty {
-            groups.append(SkillGroup(id: "workbuddy", title: "WorkBuddy", sections: [SkillSection(id: "workbuddy-user", title: "用户技能", skills: sortSkills(workbuddySkills))]))
+            }
+            groups.append(SkillGroup(id: definition.id, title: definition.title, sections: sections))
         }
         return groups
     }
