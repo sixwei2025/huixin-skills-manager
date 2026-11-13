@@ -138,22 +138,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum MenuBarIcon {
     static func create() -> NSImage {
-        let size: CGFloat = 18
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
-
-        let cx = size / 2
-        let cy = size / 2
-
-        let slashPath = NSBezierPath()
-        slashPath.lineWidth = 2.0
-        slashPath.lineCapStyle = .round
-        slashPath.move(to: NSPoint(x: cx - 2.5, y: cy - 5.5))
-        slashPath.line(to: NSPoint(x: cx + 2.5, y: cy + 5.5))
-        NSColor.black.setStroke()
-        slashPath.stroke()
-
-        image.unlockFocus()
+        // Use the system symbol metrics and template rendering so the library
+        // mark matches neighbouring menu bar items in light and dark appearances.
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let image = NSImage(
+            systemSymbolName: "infinity",
+            accessibilityDescription: "汇芯技能管家"
+        )!.withSymbolConfiguration(configuration)!
         image.isTemplate = true
         return image
     }
