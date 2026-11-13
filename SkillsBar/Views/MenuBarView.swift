@@ -226,6 +226,7 @@ struct MenuBarView: View {
             highlightedItemId = nil
             installKeyboardMonitor()
             focusSearchIfNeeded()
+            applyPreviewArguments()
         }
         .onDisappear {
             removeKeyboardMonitor()
@@ -2465,6 +2466,32 @@ struct MenuBarView: View {
         guard !store.searchText.isEmpty else { return false }
         store.searchText = ""
         return true
+    }
+
+    private func applyPreviewArguments() {
+        let args = CommandLine.arguments
+        if let idx = args.firstIndex(of: "--preview-workflow"), args.indices.contains(idx + 1) {
+            UserDefaults.standard.set(args[idx + 1], forKey: "workflowLibrarySelection")
+        }
+        if let idx = args.firstIndex(of: "--preview-search"), args.indices.contains(idx + 1) {
+            store.searchText = args[idx + 1]
+        }
+        if let idx = args.firstIndex(of: "--preview-tool"), args.indices.contains(idx + 1),
+           let screen = SkillsBarToolScreen(rawValue: args[idx + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                activeToolScreen = screen
+            }
+        }
+        if let idx = args.firstIndex(of: "--preview-skill"), args.indices.contains(idx + 1) {
+            let target = args[idx + 1].lowercased()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if let match = store.allSkills.first(where: {
+                    $0.name.lowercased().contains(target) || $0.displayName.lowercased().contains(target)
+                }) {
+                    selectedSkill = match
+                }
+            }
+        }
     }
 
 }
