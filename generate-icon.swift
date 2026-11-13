@@ -31,7 +31,8 @@ func generateIcon(size: CGFloat) -> NSImage {
     let cx = size / 2
     let cy = size / 2
     let slashPath = NSBezierPath()
-    slashPath.lineWidth = size * 0.06
+    // Use a stronger slash so the menu-bar icon stays legible at small sizes.
+    slashPath.lineWidth = size * 0.105
     slashPath.lineCapStyle = .round
     slashPath.move(to: NSPoint(x: cx - size * 0.11, y: cy - size * 0.21))
     slashPath.line(to: NSPoint(x: cx + size * 0.11, y: cy + size * 0.21))
