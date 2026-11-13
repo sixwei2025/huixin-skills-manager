@@ -2082,34 +2082,73 @@ extension SkillStore {
     static func workflowIdentity(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
+    /// Installation paths differ across assistants; declared names identify synced skills.
+    /// Plugin namespaces and project scopes stay separate to avoid merging unrelated tools.
+    static func workflowLogicalIdentity(_ skill: Skill) -> String {
+        let name = skill.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identifier = (name.isEmpty ? URL(fileURLWithPath: skill.path).deletingLastPathComponent().lastPathComponent : name).lowercased()
+        if skill.source.searchCategory == .plugin {
+            let parts = skill.path.components(separatedBy: "/")
+            let namespace = parts.lastIndex(of: "skills").flatMap { $0 > 1 ? parts[$0 - 2] : nil } ?? skill.triggerCommand
+            return "plugin:\(namespace.lowercased()):\(identifier)"
+        }
+        if let project = skill.source.projectRootPath {
+            return "project:\(workflowIdentity(project)):\(identifier)"
+        }
+        return "skill:\(identifier)"
+    }
     private func cachedWorkflowIdentity(_ path: String) -> String {
         if let value = workflowIdentityCache[path] { return value }
-        let value = Self.workflowIdentity(path)
+        let value: String
+        if let skill = lastScannedSkills.first(where: { $0.path == path }) {
+            value = Self.workflowLogicalIdentity(skill)
+        } else if let content = try? String(contentsOfFile: path, encoding: .utf8),
+                  let parsed = FrontmatterParser.parse(content: content) {
+            let source: SkillSource = path.contains("/plugins/cache/") ? .codexCLI(.plugin) : .workbuddy
+            value = Self.workflowLogicalIdentity(Skill(name: parsed.name, description: parsed.description, source: source, path: path))
+        } else {
+            value = Self.workflowIdentity(path)
+        }
         workflowIdentityCache[path] = value
         return value
     }
+    private func logicalIdentity(for skill: Skill) -> String {
+        let identity = Self.workflowLogicalIdentity(skill)
+        workflowIdentityCache[skill.path] = identity
+        return identity
+    }
+    private func overrideValue(for skill: Skill) -> String? {
+        let identity = logicalIdentity(for: skill)
+        if let value = workflowOverrides[identity] { return value }
+        // Preserve categories saved by older versions under physical file paths.
+        let legacyKeys = workflowOverrides.keys.sorted()
+        return legacyKeys.first { cachedWorkflowIdentity($0) == identity }.flatMap { workflowOverrides[$0] }
+    }
     func workflowCategory(for skill: Skill) -> WorkflowCategory {
         if let cached = workflowResolvedCategories[skill.path] { return cached }
-        let category = workflowOverrides[cachedWorkflowIdentity(skill.path)].flatMap(WorkflowCategory.init(rawValue:)) ?? WorkflowCategory.suggest(for: skill)
+        let category = overrideValue(for: skill).flatMap(WorkflowCategory.init(rawValue:)) ?? WorkflowCategory.suggest(for: skill)
         workflowResolvedCategories[skill.path] = category
         return category
     }
     func hasWorkflowOverride(_ skill: Skill) -> Bool {
-        workflowOverrides[cachedWorkflowIdentity(skill.path)] != nil
+        overrideValue(for: skill) != nil
     }
     func setWorkflowCategory(_ category: WorkflowCategory?, for skill: Skill) {
-        let key = cachedWorkflowIdentity(skill.path)
+        let key = logicalIdentity(for: skill)
         workflowResolvedCategories.removeAll()
+        for legacy in Array(workflowOverrides.keys) where legacy != key && cachedWorkflowIdentity(legacy) == key {
+            workflowOverrides.removeValue(forKey: legacy)
+        }
         workflowOverrides[key] = category?.rawValue
         workflowDefaults.set(workflowOverrides, forKey: "workflowCategoryOverrides")
     }
     func workflowContains(_ collection: SkillCollection, skill: Skill) -> Bool {
-        let identity = cachedWorkflowIdentity(skill.path)
+        let identity = logicalIdentity(for: skill)
         return collection.skillPaths.contains { cachedWorkflowIdentity($0) == identity }
     }
     func toggleWorkflowMembership(_ skill: Skill, in collection: SkillCollection) {
         guard let index = collections.firstIndex(where: { $0.id == collection.id }) else { return }
-        let identity = cachedWorkflowIdentity(skill.path)
+        let identity = logicalIdentity(for: skill)
         if workflowContains(collections[index], skill: skill) {
             collections[index].skillPaths.removeAll { cachedWorkflowIdentity($0) == identity }
         } else {
@@ -2118,12 +2157,19 @@ extension SkillStore {
         collections[index].updatedAt = Date()
         persistCollections()
     }
-    func workflowSkills(sourceGroup: String = "all") -> [Skill] {
-        if let cached = workflowSkillCache[sourceGroup] { return cached }
+    static func uniqueWorkflowSkills(_ skills: [Skill], sourceGroup: String = "all") -> [Skill] {
         var seen = Set<String>()
-        let result = allSkills.filter {
-            (sourceGroup == "all" || $0.source.groupTitle == sourceGroup) && seen.insert(cachedWorkflowIdentity($0.path)).inserted
+        return skills.filter {
+            (sourceGroup == "all" || $0.source.groupTitle == sourceGroup) && seen.insert(workflowLogicalIdentity($0)).inserted
         }
+    }
+    func workflowSources(for skill: Skill) -> [String] {
+        let identity = logicalIdentity(for: skill)
+        return Array(Set(lastScannedSkills.filter { Self.workflowLogicalIdentity($0) == identity }.map { $0.source.groupTitle })).sorted()
+    }
+    func workflowSkills(sourceGroup: String = "Gemini") -> [Skill] {
+        if let cached = workflowSkillCache[sourceGroup] { return cached }
+        let result = Self.uniqueWorkflowSkills(allSkills, sourceGroup: sourceGroup)
         workflowSkillCache[sourceGroup] = result
         return result
     }

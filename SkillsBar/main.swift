@@ -37,6 +37,41 @@ if CommandLine.arguments.contains("--self-test") {
         precondition(SkillStore(workflowDefaults: defaults).workflowCategory(for: sample) == .video)
         renamed.deleteCollection(renamed.collections[0])
         precondition(SkillStore(workflowDefaults: defaults).collections.isEmpty)
+        // Physical copies installed in four assistants form one overview entry.
+        let copiesRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: copiesRoot) }
+        let sources: [SkillSource] = [.claudeCode(.user), .codexCLI(.user), .pi(.user), .workbuddy]
+        let copies = sources.enumerated().map { index, source -> Skill in
+            let folder = copiesRoot.appendingPathComponent("assistant-\(index)/synced-tool")
+            try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("SKILL.md")
+            try! "---\nname: synced-tool\ndescription: real copy\n---\nbody".write(to: file, atomically: true, encoding: .utf8)
+            return Skill(name: "synced-tool", description: "real copy", source: source, path: file.path)
+        }
+        precondition(SkillStore.uniqueWorkflowSkills(copies).count == 1)
+        for copy in copies {
+            let filtered = SkillStore.uniqueWorkflowSkills(copies, sourceGroup: copy.source.groupTitle)
+            precondition(filtered.count == 1 && filtered[0].path == copy.path)
+        }
+        let different = Skill(name: "another-tool", description: "real copy", source: .workbuddy, path: "/tmp/another/SKILL.md")
+        precondition(SkillStore.uniqueWorkflowSkills(copies + [different]).count == 2)
+        let pluginA = Skill(name: "synced-tool", description: "", source: .codexCLI(.plugin), path: "/tmp/plugins/cache/vendor/plugin-a/1/skills/synced-tool/SKILL.md")
+        let pluginB = Skill(name: "synced-tool", description: "", source: .codexCLI(.plugin), path: "/tmp/plugins/cache/vendor/plugin-b/1/skills/synced-tool/SKILL.md")
+        precondition(SkillStore.uniqueWorkflowSkills(copies + [pluginA, pluginB]).count == 3)
+        // Old path-based preferences survive, including resetting through another copy.
+        defaults.set([SkillStore.workflowIdentity(copies[0].path): WorkflowCategory.business.rawValue], forKey: "workflowCategoryOverrides")
+        let migrated = SkillStore(workflowDefaults: defaults)
+        precondition(migrated.workflowCategory(for: copies[3]) == .business)
+        migrated.setWorkflowCategory(.knowledge, for: copies[1])
+        precondition(copies.allSatisfy { migrated.workflowCategory(for: $0) == .knowledge })
+        let syncedCollection = migrated.createCollection(named: "同步技能")
+        migrated.toggleWorkflowMembership(copies[0], in: syncedCollection)
+        let restored = SkillStore(workflowDefaults: defaults)
+        precondition(restored.workflowContains(restored.collections[0], skill: copies[3]))
+        restored.toggleWorkflowMembership(copies[3], in: restored.collections[0])
+        precondition(restored.collections[0].skillPaths.isEmpty)
+        restored.setWorkflowCategory(nil, for: copies[2])
+        precondition(copies.allSatisfy { !restored.hasWorkflowOverride($0) })
         // Linked installations refer to one skill for overrides and membership.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -55,12 +90,23 @@ if CommandLine.arguments.contains("--self-test") {
         renamed.toggleWorkflowMembership(linked, in: renamed.collections[0])
         precondition(renamed.collections[0].skillPaths.isEmpty)
     }
-    print("通过：多行说明、元数据隔离、中文显示、原始调用名、来源分组、加宽面板、自动分类、手动纠正、自定义分类、重启恢复、跨来源链接")
+    print("通过：多行说明、元数据隔离、中文显示、原始调用名、来源分组、加宽面板、自动分类、手动纠正、自定义分类、重启恢复、跨来源链接、四平台副本合并、来源筛选、插件隔离、旧分类兼容")
     exit(0)
 }
 if CommandLine.arguments.contains("--plugin-catalog-json") {
     let rows = PluginScanner().scanInstalledPlugins().map { ["name": $0.name, "displayName": $0.displayName] }
     FileHandle.standardOutput.write(try! JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted]))
+    exit(0)
+}
+if CommandLine.arguments.contains("--workflow-catalog-json") {
+    MainActor.assumeIsolated {
+    let skills = SkillScanner().scanAll()
+    let rows = SkillStore.uniqueWorkflowSkills(skills).map { skill in
+        ["name": skill.name, "identity": SkillStore.workflowLogicalIdentity(skill),
+         "sources": Array(Set(skills.filter { SkillStore.workflowLogicalIdentity($0) == SkillStore.workflowLogicalIdentity(skill) }.map { $0.source.groupTitle })).sorted().joined(separator: " / ")]
+    }
+    FileHandle.standardOutput.write(try! JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]))
+    }
     exit(0)
 }
 if CommandLine.arguments.contains("--catalog-json") {

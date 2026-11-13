@@ -609,11 +609,10 @@ struct WorkflowLibraryView: View {
     @ObservedObject var store: SkillStore
     let onSelectSkill: (Skill) -> Void
     @AppStorage("workflowLibrarySelection") private var selection = "all"
-    @State private var source = "all"
     @State private var categoryName = ""
     @State private var isAddingSkills = false
 
-    private var skills: [Skill] { store.workflowSkills(sourceGroup: source) }
+    private var skills: [Skill] { store.workflowSkills() }
     private var selectedCollection: SkillCollection? {
         store.collections.first { "custom:" + $0.id.uuidString == selection }
     }
@@ -743,16 +742,10 @@ struct WorkflowLibraryView: View {
                     Text("\(filteredSkills.count) 项").foregroundStyle(.secondary).font(.system(size: 12))
                 }
             }
-            Text(selectedCollection == nil ? (selectedWorkflow?.steps ?? "按用途找技能，也可以建立自己的分类") : (isAddingSkills ? "勾选要加入的技能，支持跨来源选择" : "一个技能可以加入多个自定义分类"))
+            Text(selectedCollection == nil ? (selectedWorkflow?.steps ?? "按用途找技能，也可以建立自己的分类") : (isAddingSkills ? "勾选要加入的 Gemini 技能" : "一个技能可以加入多个自定义分类"))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             HStack {
-                Menu {
-                    Button("全部来源") { source = "all" }
-                    ForEach(["Gemini", "Codex", "Grok Bot", "WorkBuddy"], id: \.self) { title in
-                        Button(title) { source = title }
-                    }
-                } label: { Label(source == "all" ? "全部来源" : source, systemImage: "line.3.horizontal.decrease.circle") }
-                .menuStyle(.borderlessButton).fixedSize()
+                Label("Gemini 技能", systemImage: "sparkles").foregroundStyle(.secondary)
                 Spacer()
                 if selectedCollection != nil {
                     Button(isAddingSkills ? "完成添加" : "添加技能") { isAddingSkills.toggle() }
