@@ -7,7 +7,8 @@ if CommandLine.arguments.contains("--self-test") {
     let literal = FrontmatterParser.parse(content: "---\nname: test\ndescription: |\n  第一行\n  第二行\n---\n正文")!
     precondition(literal.description == "第一行\n第二行")
     let skill = Skill(name: "workbuddy-credits-manager", description: "", source: .workbuddy, path: "/tmp/workbuddy-credits-manager/SKILL.md")
-    precondition(skill.displayName == "工作搭档积分管家" && skill.triggerCommand == "workbuddy-credits-manager")
+    precondition(skill.displayName == "汇芯工作搭档积分管家" && skill.triggerCommand == "workbuddy-credits-manager")
+    precondition(skill.displayName.count <= 13)
     precondition(SkillStore.SkillTab.workbuddy.groupID == "workbuddy")
     precondition(SkillsBarLayout.windowWidth == 760)
     // Isolate persistence tests from the real user's categories.

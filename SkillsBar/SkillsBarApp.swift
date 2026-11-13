@@ -140,7 +140,7 @@ enum MenuBarIcon {
     static func create() -> NSImage {
         // Use the system symbol metrics and template rendering so the library
         // mark matches neighbouring menu bar items in light and dark appearances.
-        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .bold)
         let image = NSImage(
             systemSymbolName: "infinity",
             accessibilityDescription: "汇芯技能管家"

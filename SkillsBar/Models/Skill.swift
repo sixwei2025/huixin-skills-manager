@@ -28,7 +28,10 @@ struct Skill: Identifiable, Hashable {
     }
 
     var displayName: String {
-        ChineseSkillNames.name(name.isEmpty ? URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent : name, description: description, path: path)
+        let original = name.isEmpty ? URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent : name
+        let translated = ChineseSkillNames.name(original, description: description, path: path)
+        let branded = originCategory == .selfDeveloped && !translated.hasPrefix("汇芯") ? "汇芯\(translated)" : translated
+        return String(branded.prefix(13))
     }
 
     var shortDescription: String {
