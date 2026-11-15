@@ -64,13 +64,13 @@ struct MenuBarView: View {
     }
 
     private enum DeleteRequest: Identifiable {
-        case skill(Skill)
+        case skill(Skill, syncAcrossAssistants: Bool)
         case agent(Agent)
 
         var id: String {
             switch self {
-            case .skill(let skill):
-                return "skill-\(skill.id)"
+            case .skill(let skill, let syncAcrossAssistants):
+                return "skill-\(skill.id)-\(syncAcrossAssistants)"
             case .agent(let agent):
                 return "agent-\(agent.id)"
             }
@@ -178,9 +178,13 @@ struct MenuBarView: View {
                     validationSummary: store.validationSummary(for: skill),
                     collections: store.orderedCollections,
                     skillCollections: store.collections(for: skill),
+                    deleteConfirmationMessage: store.skillDeleteConfirmationMessage(
+                        for: skill,
+                        syncAcrossAssistants: selectedTab == .collections
+                    ),
                     onBack: { selectedSkill = nil },
                     onDelete: { skill in
-                        moveSkillToTrash(skill)
+                        moveSkillToTrash(skill, syncAcrossAssistants: selectedTab == .collections)
                     },
                     onTogglePin: { skill in
                         store.togglePin(skill)
@@ -216,7 +220,7 @@ struct MenuBarView: View {
             Button("取消", role: .cancel) {
                 pendingDeletion = nil
             }
-            Button("Move to Trash", role: .destructive) {
+            Button("移至废纸篓", role: .destructive) {
                 confirmPendingDeletion()
             }
         } message: {
@@ -664,7 +668,11 @@ struct MenuBarView: View {
 
     private var contentListView: some View {
         if selectedTab == .collections {
-            return AnyView(WorkflowLibraryView(store: store, onSelectSkill: { selectedSkill = $0 }))
+            return AnyView(WorkflowLibraryView(
+                store: store,
+                onSelectSkill: { selectedSkill = $0 },
+                onDeleteSkill: { pendingDeletion = .skill($0, syncAcrossAssistants: true) }
+            ))
         }
 
         let recentSkills = showsWhatsNewSection ? recentSkills(for: selectedTab) : []
@@ -1072,8 +1080,8 @@ struct MenuBarView: View {
             }
             if !skill.source.isProjectSkill {
                 Divider()
-                Button("Delete Skill", role: .destructive) {
-                    pendingDeletion = .skill(skill)
+                Button("删除技能", role: .destructive) {
+                    pendingDeletion = .skill(skill, syncAcrossAssistants: false)
                 }
             }
         }
@@ -2288,20 +2296,20 @@ struct MenuBarView: View {
     private var deleteConfirmationTitle: String {
         switch pendingDeletion {
         case .skill:
-            return "Move Skill to Trash"
+            return "删除技能"
         case .agent:
-            return "Move Agent to Trash"
+            return "删除助手"
         case nil:
-            return "Move to Trash"
+            return "移至废纸篓"
         }
     }
 
     private var deleteConfirmationMessage: String {
         switch pendingDeletion {
-        case .skill(let skill):
-            return "Move \"\(skill.displayName)\" and its folder to Trash?"
+        case .skill(let skill, let syncAcrossAssistants):
+            return store.skillDeleteConfirmationMessage(for: skill, syncAcrossAssistants: syncAcrossAssistants)
         case .agent(let agent):
-            return "Move \"\(agent.displayName)\" to Trash?"
+            return "将「\(agent.displayName)」移至废纸篓？"
         case nil:
             return ""
         }
@@ -2312,23 +2320,28 @@ struct MenuBarView: View {
         self.pendingDeletion = nil
 
         switch pendingDeletion {
-        case .skill(let skill):
-            _ = moveSkillToTrash(skill)
+        case .skill(let skill, let syncAcrossAssistants):
+            _ = moveSkillToTrash(skill, syncAcrossAssistants: syncAcrossAssistants)
         case .agent(let agent):
             _ = moveAgentToTrash(agent)
         }
     }
 
-    private func moveSkillToTrash(_ skill: Skill) -> Bool {
-        guard store.deleteSkill(skill) else {
-            showCopyToast("Could not move to Trash")
+    private func moveSkillToTrash(_ skill: Skill, syncAcrossAssistants: Bool = false) -> Bool {
+        let affectedSources = store.deletionTargetSources(for: skill, syncAcrossAssistants: syncAcrossAssistants)
+        guard store.deleteSkill(skill, syncAcrossAssistants: syncAcrossAssistants) else {
+            showCopyToast("无法移至废纸篓")
             return false
         }
 
         if selectedSkill?.id == skill.id {
             selectedSkill = nil
         }
-        showCopyToast("Moved to Trash")
+        if syncAcrossAssistants && affectedSources.count > 1 {
+            showCopyToast("已从 \(affectedSources.count) 个工具同步移至废纸篓")
+        } else {
+            showCopyToast("已移至废纸篓")
+        }
         return true
     }
 

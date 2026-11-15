@@ -54,6 +54,8 @@ final class SkillStore: ObservableObject {
     private var lastScannedSkills: [Skill] = []
     private var lastScannedAgents: [Agent] = []
     private(set) var usageTracker: UsageTracker?
+    private let homeDirectory: String
+    private let trashItemHandler: (URL) throws -> Void
 
     private static let pinnedKey = "pinnedSkillPaths"
     private static let pinnedOrderKey = "pinnedSkillOrder"
@@ -63,10 +65,19 @@ final class SkillStore: ObservableObject {
     private static let projectSkillRootsKey = "projectSkillRoots"
     private static let watchedRefreshDelay: UInt64 = 1_500_000_000
 
-    init(usageTracker: UsageTracker? = nil, workflowDefaults: UserDefaults = .standard) {
+    init(
+        usageTracker: UsageTracker? = nil,
+        workflowDefaults: UserDefaults = .standard,
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        trashItemHandler: ((URL) throws -> Void)? = nil
+    ) {
         self.workflowDefaults = workflowDefaults
         self.workflowOverrides = workflowDefaults.dictionary(forKey: "workflowCategoryOverrides") as? [String: String] ?? [:]
         self.usageTracker = usageTracker
+        self.homeDirectory = homeDirectory
+        self.trashItemHandler = trashItemHandler ?? { url in
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        }
         if let raw = UserDefaults.standard.string(forKey: Self.sortKey),
            let saved = SkillSortOption(rawValue: raw) {
             self._sortOption = Published(initialValue: saved)
@@ -724,12 +735,20 @@ final class SkillStore: ObservableObject {
         return baseName
     }
 
-    private func removeSkillPathFromCollections(_ path: String) {
-        var didChange = false
+    private func removeSkillPathsReferences(_ paths: Set<String>) {
+        guard !paths.isEmpty else { return }
 
+        let removedPins = paths.intersection(pinnedPaths)
+        if !removedPins.isEmpty {
+            pinnedPaths.subtract(removedPins)
+            pinnedOrder.removeAll { removedPins.contains($0) }
+            persistPins()
+        }
+
+        var didChange = false
         for index in collections.indices {
             let originalCount = collections[index].skillPaths.count
-            collections[index].skillPaths.removeAll { $0 == path }
+            collections[index].skillPaths.removeAll { paths.contains($0) }
             if collections[index].skillPaths.count != originalCount {
                 collections[index].updatedAt = Date()
                 didChange = true
@@ -743,7 +762,7 @@ final class SkillStore: ObservableObject {
         var didChangeProjectPins = false
         for key in Array(projectPinnedSkillPaths.keys) {
             let originalCount = projectPinnedSkillPaths[key]?.count ?? 0
-            projectPinnedSkillPaths[key]?.removeAll { $0 == path }
+            projectPinnedSkillPaths[key]?.removeAll { paths.contains($0) }
             if projectPinnedSkillPaths[key]?.isEmpty == true {
                 projectPinnedSkillPaths.removeValue(forKey: key)
             }
@@ -1492,10 +1511,11 @@ final class SkillStore: ObservableObject {
 
         isRefreshing = true
         let projectSkillRoots = self.projectSkillRoots
+        let homeDirectory = self.homeDirectory
 
         refreshTask = Task(priority: .userInitiated) { [weak self] in
             let scanned = await Task.detached(priority: .userInitiated) {
-                Self.scanContent(projectSkillRoots: projectSkillRoots)
+                Self.scanContent(projectSkillRoots: projectSkillRoots, homeDirectory: homeDirectory)
             }.value
 
             guard let self else { return }
@@ -1525,23 +1545,99 @@ final class SkillStore: ObservableObject {
         groups = buildGroups(from: lastScannedSkills)
     }
 
+    func reloadScannedSkillsForTesting() {
+        let skills = SkillScanner(home: homeDirectory).scanAll(projectSkillRoots: projectSkillRoots)
+        workflowResolvedCategories.removeAll()
+        workflowIdentityCache.removeAll()
+        workflowSkillCache.removeAll()
+        lastScannedSkills = skills
+        groups = buildGroups(from: skills)
+        lastRefreshDate = Date()
+    }
+
     @discardableResult
-    func deleteSkill(_ skill: Skill) -> Bool {
+    func deleteSkill(_ skill: Skill, syncAcrossAssistants: Bool = false) -> Bool {
         guard !skill.source.isProjectSkill else { return false }
 
         let fileManager = FileManager.default
-        let skillDir = (skill.path as NSString).deletingLastPathComponent
+        let targets = Self.skillsMatchingForDeletion(
+            of: skill,
+            in: lastScannedSkills,
+            syncAcrossAssistants: syncAcrossAssistants
+        )
+        guard !targets.isEmpty else { return false }
 
-        do {
-            try fileManager.trashItem(at: URL(fileURLWithPath: skillDir), resultingItemURL: nil)
-        } catch {
-            return false
+        let protectedRoots = Self.protectedSkillRootPaths(home: homeDirectory)
+        var symlinkRemovals: [String] = []
+        var realRemovals: [String] = []
+        var seenRemovalPaths = Set<String>()
+
+        for target in targets {
+            let itemURL = Self.skillRemovalItemURL(for: target.path)
+            let normalizedPath = Self.normalizedRemovalPath(for: itemURL)
+            let resolvedPath = URL(fileURLWithPath: normalizedPath).resolvingSymlinksInPath().path
+            guard !protectedRoots.contains(normalizedPath),
+                  !protectedRoots.contains(resolvedPath),
+                  seenRemovalPaths.insert(normalizedPath).inserted else {
+                continue
+            }
+
+            guard let attributes = try? fileManager.attributesOfItem(atPath: normalizedPath) else {
+                continue
+            }
+            if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+                symlinkRemovals.append(normalizedPath)
+            } else {
+                realRemovals.append(normalizedPath)
+            }
         }
 
-        pinnedPaths.remove(skill.path)
-        pinnedOrder.removeAll { $0 == skill.path }
-        persistPins()
-        removeSkillPathFromCollections(skill.path)
+        // Also include symlinks in assistant roots whose target lies inside any real directory being deleted,
+        // so deleting a skill never leaves broken symlinks in other assistants.
+        let realRemovalTargets = realRemovals.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+        for symlinkPath in danglingSymlinksInsideRoots(pointingInto: realRemovalTargets, protectedRoots: protectedRoots)
+        where seenRemovalPaths.insert(symlinkPath).inserted {
+            symlinkRemovals.append(symlinkPath)
+        }
+
+        let orderedRemovals = symlinkRemovals + realRemovals
+        guard !orderedRemovals.isEmpty else { return false }
+
+        // Resolve logical identities before deleting files so collections referencing sibling paths can be cleaned.
+        let deletedSkillPaths = Set(targets.map(\.path))
+        let deletedCanonicalPaths = Set(targets.map { Self.workflowIdentity($0.path) })
+        let deletedLogicalIdentities = Set(targets.map { Self.workflowLogicalIdentity($0) })
+        let matchingCollectionPaths = collectMatchingPathsInCollections(
+            deletedSkillPaths: deletedSkillPaths,
+            deletedCanonicalPaths: deletedCanonicalPaths,
+            deletedLogicalIdentities: syncAcrossAssistants ? deletedLogicalIdentities : []
+        )
+
+        var trashedAny = false
+        for removalPath in orderedRemovals {
+            guard (try? fileManager.attributesOfItem(atPath: removalPath)) != nil else { continue }
+            do {
+                try trashItemHandler(URL(fileURLWithPath: removalPath))
+                trashedAny = true
+            } catch {
+                continue
+            }
+        }
+        guard trashedAny else { return false }
+
+        var pathsToClean = deletedSkillPaths.union(matchingCollectionPaths)
+        for candidate in lastScannedSkills where !fileManager.fileExists(atPath: candidate.path) {
+            pathsToClean.insert(candidate.path)
+        }
+
+        removeSkillPathsReferences(pathsToClean)
+        lastScannedSkills.removeAll { candidate in
+            pathsToClean.contains(candidate.path) || !fileManager.fileExists(atPath: candidate.path)
+        }
+        workflowResolvedCategories.removeAll()
+        workflowIdentityCache.removeAll()
+        workflowSkillCache.removeAll()
+        groups = buildGroups(from: lastScannedSkills)
         refresh()
         return true
     }
@@ -1908,8 +2004,11 @@ final class SkillStore: ObservableObject {
         return components.sorted()
     }
 
-    nonisolated private static func scanContent(projectSkillRoots: [ProjectSkillRoot]) -> (skills: [Skill], agents: [Agent], plugins: [Plugin]) {
-        let skills = SkillScanner().scanAll(projectSkillRoots: projectSkillRoots)
+    nonisolated private static func scanContent(
+        projectSkillRoots: [ProjectSkillRoot],
+        homeDirectory: String
+    ) -> (skills: [Skill], agents: [Agent], plugins: [Plugin]) {
+        let skills = SkillScanner(home: homeDirectory).scanAll(projectSkillRoots: projectSkillRoots)
         let agents: [Agent] = []
         let plugins = PluginScanner().scanInstalledPlugins()
         return (skills, agents, plugins)
@@ -2110,5 +2209,181 @@ extension SkillStore {
         let result = Self.uniqueWorkflowSkills(allSkills, sourceGroup: sourceGroup)
         workflowSkillCache[sourceGroup] = result
         return result
+    }
+
+    static func skillFolderSlug(for skill: Skill) -> String {
+        let url = URL(fileURLWithPath: skill.path)
+        if url.lastPathComponent.caseInsensitiveCompare("SKILL.md") == .orderedSame {
+            return url.deletingLastPathComponent().lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+        return url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    static func skillsMatchingForDeletion(
+        of skill: Skill,
+        in pool: [Skill],
+        syncAcrossAssistants: Bool
+    ) -> [Skill] {
+        guard !skill.source.isProjectSkill else { return [] }
+        guard syncAcrossAssistants else { return [skill] }
+
+        let targetCanonical = workflowIdentity(skill.path)
+        let targetLogical = workflowLogicalIdentity(skill)
+        let targetSlug = skillFolderSlug(for: skill)
+        let targetIsUserOrShared = skill.source.searchCategory == .user || skill.source.searchCategory == .shared
+
+        var matches = pool.filter { candidate in
+            guard !candidate.source.isProjectSkill else { return false }
+            if candidate.path == skill.path { return true }
+            if workflowIdentity(candidate.path) == targetCanonical { return true }
+
+            let candidateIsUserOrShared = candidate.source.searchCategory == .user || candidate.source.searchCategory == .shared
+            if targetIsUserOrShared {
+                guard candidateIsUserOrShared else { return false }
+                if workflowLogicalIdentity(candidate) == targetLogical { return true }
+                return !targetSlug.isEmpty && skillFolderSlug(for: candidate) == targetSlug
+            }
+
+            return candidate.source.searchCategory == skill.source.searchCategory
+                && workflowLogicalIdentity(candidate) == targetLogical
+        }
+
+        if !matches.contains(where: { $0.path == skill.path }) {
+            matches.insert(skill, at: 0)
+        }
+        return matches
+    }
+
+    func deletionTargetSources(for skill: Skill, syncAcrossAssistants: Bool) -> [String] {
+        let matches = Self.skillsMatchingForDeletion(
+            of: skill,
+            in: lastScannedSkills,
+            syncAcrossAssistants: syncAcrossAssistants
+        )
+        let orderedTabs = ["Gemini", "Codex", "Grok Bot", "WorkBuddy"]
+        let present = Set(matches.map { $0.source.groupTitle })
+        return orderedTabs.filter { present.contains($0) }
+    }
+
+    func skillDeleteConfirmationMessage(for skill: Skill, syncAcrossAssistants: Bool) -> String {
+        let sources = deletionTargetSources(for: skill, syncAcrossAssistants: syncAcrossAssistants)
+        if syncAcrossAssistants && sources.count > 1 {
+            return "将「\(skill.displayName)」移至废纸篓，并同步从 \(sources.joined(separator: "、")) 中删除？"
+        }
+        let isFolderSkill = URL(fileURLWithPath: skill.path).lastPathComponent.caseInsensitiveCompare("SKILL.md") == .orderedSame
+        return isFolderSkill
+            ? "将「\(skill.displayName)」及其文件夹移至废纸篓？"
+            : "将「\(skill.displayName)」移至废纸篓？"
+    }
+
+    private static func skillRemovalItemURL(for skillPath: String) -> URL {
+        let fileURL = URL(fileURLWithPath: skillPath)
+        if fileURL.lastPathComponent.caseInsensitiveCompare("SKILL.md") == .orderedSame {
+            return fileURL.deletingLastPathComponent()
+        }
+        return fileURL
+    }
+
+    private static func normalizedRemovalPath(for itemURL: URL) -> String {
+        let parent = itemURL.deletingLastPathComponent().resolvingSymlinksInPath()
+        return parent.appendingPathComponent(itemURL.lastPathComponent).standardizedFileURL.path
+    }
+
+    private static func globalSkillRootRelativePaths() -> [String] {
+        [
+            ".gemini/skills",
+            ".gemini/config/skills",
+            ".gemini/config/plugins",
+            ".gemini/antigravity-cli/builtin/skills",
+            ".codex/skills",
+            ".grokbot/skills",
+            ".agents/skills",
+            ".workbuddy/skills",
+        ]
+    }
+
+    private static func protectedSkillRootPaths(home: String) -> Set<String> {
+        let raw = [
+            home,
+            "/",
+            (home as NSString).appendingPathComponent(".gemini"),
+            (home as NSString).appendingPathComponent(".gemini/config"),
+            (home as NSString).appendingPathComponent(".codex"),
+            (home as NSString).appendingPathComponent(".codex/skills/.system"),
+            (home as NSString).appendingPathComponent(".codex/plugins"),
+            (home as NSString).appendingPathComponent(".codex/plugins/cache"),
+            (home as NSString).appendingPathComponent(".grokbot"),
+            (home as NSString).appendingPathComponent(".agents"),
+            (home as NSString).appendingPathComponent(".workbuddy"),
+        ] + globalSkillRootRelativePaths().map { (home as NSString).appendingPathComponent($0) }
+
+        var result = Set<String>()
+        for entry in raw {
+            result.insert((entry as NSString).standardizingPath)
+            result.insert(URL(fileURLWithPath: entry).standardizedFileURL.resolvingSymlinksInPath().path)
+        }
+        return result
+    }
+
+    private func danglingSymlinksInsideRoots(
+        pointingInto realTargets: [String],
+        protectedRoots: Set<String>
+    ) -> [String] {
+        guard !realTargets.isEmpty else { return [] }
+        let fileManager = FileManager.default
+        var symlinks: [String] = []
+        var visitedRoots = Set<String>()
+
+        for relativeRoot in Self.globalSkillRootRelativePaths() {
+            let rootPath = (homeDirectory as NSString).appendingPathComponent(relativeRoot)
+            let resolvedRoot = URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath().path
+            guard visitedRoots.insert(resolvedRoot).inserted,
+                  let children = try? fileManager.contentsOfDirectory(atPath: resolvedRoot) else {
+                continue
+            }
+
+            let rootURL = URL(fileURLWithPath: resolvedRoot)
+            for child in children where !child.hasPrefix(".") {
+                let childPath = rootURL.appendingPathComponent(child).path
+                guard !protectedRoots.contains(childPath),
+                      let attributes = try? fileManager.attributesOfItem(atPath: childPath),
+                      attributes[.type] as? FileAttributeType == .typeSymbolicLink,
+                      let destination = try? fileManager.destinationOfSymbolicLink(atPath: childPath) else {
+                    continue
+                }
+
+                let destURL = destination.hasPrefix("/")
+                    ? URL(fileURLWithPath: destination)
+                    : rootURL.appendingPathComponent(destination)
+                let resolvedDest = destURL.standardizedFileURL.resolvingSymlinksInPath().path
+                if realTargets.contains(where: { path(resolvedDest, isEqualToOrInside: $0) }) {
+                    symlinks.append(childPath)
+                }
+            }
+        }
+
+        return symlinks
+    }
+
+    private func collectMatchingPathsInCollections(
+        deletedSkillPaths: Set<String>,
+        deletedCanonicalPaths: Set<String>,
+        deletedLogicalIdentities: Set<String>
+    ) -> Set<String> {
+        var matched = Set<String>()
+        for collection in collections {
+            for savedPath in collection.skillPaths {
+                if deletedSkillPaths.contains(savedPath) ||
+                    deletedCanonicalPaths.contains(Self.workflowIdentity(savedPath)) ||
+                    (!deletedLogicalIdentities.isEmpty && deletedLogicalIdentities.contains(cachedWorkflowIdentity(savedPath))) {
+                    matched.insert(savedPath)
+                }
+            }
+        }
+        return matched
     }
 }

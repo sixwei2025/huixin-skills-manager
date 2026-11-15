@@ -90,8 +90,89 @@ if CommandLine.arguments.contains("--self-test") {
         precondition(renamed.workflowContains(renamed.collections[0], skill: linked))
         renamed.toggleWorkflowMembership(linked, in: renamed.collections[0])
         precondition(renamed.collections[0].skillPaths.isEmpty)
+
+        // Deleting from WorkflowLibraryView removes all assistant copies, symlinks, pins, and collections without touching plugins or root folders.
+        let fakeHome = FileManager.default.temporaryDirectory.appendingPathComponent("huixin-delete-test-" + UUID().uuidString)
+        let fakeTrash = fakeHome.appendingPathComponent(".FakeTrash")
+        defer { try? FileManager.default.removeItem(at: fakeHome) }
+        let fm = FileManager.default
+        let agentsSkills = fakeHome.appendingPathComponent(".agents/skills")
+        let geminiDir = fakeHome.appendingPathComponent(".gemini")
+        let codexSkills = fakeHome.appendingPathComponent(".codex/skills")
+        let grokSkills = fakeHome.appendingPathComponent(".grokbot/skills")
+        let wbSkills = fakeHome.appendingPathComponent(".workbuddy/skills")
+        let pluginSkillDir = fakeHome.appendingPathComponent(".codex/plugins/cache/vendor/sample-plugin/1.0/skills/shared-suite")
+        for dir in [agentsSkills, geminiDir, codexSkills, grokSkills, wbSkills, pluginSkillDir, fakeTrash] {
+            try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        try! fm.createSymbolicLink(at: geminiDir.appendingPathComponent("skills"), withDestinationURL: agentsSkills)
+
+        let agentsShared = agentsSkills.appendingPathComponent("shared-suite")
+        let subSkillDir = agentsShared.appendingPathComponent("subskills/sub-a")
+        try! fm.createDirectory(at: subSkillDir, withIntermediateDirectories: true)
+        try! "---\nname: shared-suite\ndescription: synced\n---\nbody".write(to: agentsShared.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try! "---\nname: sub-a\ndescription: sub\n---\nbody".write(to: subSkillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try! fm.createSymbolicLink(at: codexSkills.appendingPathComponent("shared-suite"), withDestinationURL: agentsShared)
+        try! fm.createSymbolicLink(at: grokSkills.appendingPathComponent("shared-suite"), withDestinationURL: agentsShared)
+        let wbShared = wbSkills.appendingPathComponent("shared-suite")
+        try! fm.createDirectory(at: wbShared, withIntermediateDirectories: true)
+        try! "---\nname: shared-suite\ndescription: wb copy\n---\nbody".write(to: wbShared.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try! fm.createSymbolicLink(at: wbSkills.appendingPathComponent("sub-a"), withDestinationURL: subSkillDir)
+        try! "---\nname: shared-suite\ndescription: plugin\n---\nbody".write(to: pluginSkillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let codexReverse = codexSkills.appendingPathComponent("reverse-tool")
+        try! fm.createDirectory(at: codexReverse.appendingPathComponent("agents"), withIntermediateDirectories: true)
+        try! "---\nname: reverse-tool\ndescription: reverse\n---\nbody".write(to: codexReverse.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try! "interface:\n  display_name: 中文覆盖名\n".write(to: codexReverse.appendingPathComponent("agents/openai.yaml"), atomically: true, encoding: .utf8)
+        let agentsReverse = agentsSkills.appendingPathComponent("reverse-tool")
+        try! fm.createSymbolicLink(at: agentsReverse, withDestinationURL: codexReverse)
+        try! fm.createSymbolicLink(at: grokSkills.appendingPathComponent("reverse-tool"), withDestinationURL: agentsReverse)
+        try! fm.createSymbolicLink(at: wbSkills.appendingPathComponent("reverse-tool"), withDestinationURL: agentsReverse)
+        try! "---\nname: standalone-note\ndescription: single file\n---\nbody".write(to: grokSkills.appendingPathComponent("standalone-note.md"), atomically: true, encoding: .utf8)
+
+        let deleteSuite = "cn.huixin.skillsmanager.tests." + UUID().uuidString
+        let deleteDefaults = UserDefaults(suiteName: deleteSuite)!
+        defer { deleteDefaults.removePersistentDomain(forName: deleteSuite) }
+        let deleteStore = SkillStore(
+            workflowDefaults: deleteDefaults,
+            homeDirectory: fakeHome.path,
+            trashItemHandler: { url in
+                let dest = fakeTrash.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+                try fm.moveItem(at: url, to: dest)
+            }
+        )
+        deleteStore.reloadScannedSkillsForTesting()
+        let geminiSharedSkill = deleteStore.workflowSkills().first { $0.name == "shared-suite" }!
+        let wbSharedSkill = deleteStore.allSkills.first { $0.path == wbShared.appendingPathComponent("SKILL.md").path }!
+        let codexSharedSkill = deleteStore.allSkills.first { $0.path == codexSkills.appendingPathComponent("shared-suite/SKILL.md").path }!
+        let deleteCollection = deleteStore.createCollection(named: "待删", including: wbSharedSkill)
+        deleteStore.togglePin(codexSharedSkill)
+        precondition(deleteStore.deletionTargetSources(for: geminiSharedSkill, syncAcrossAssistants: true) == ["Gemini", "Codex", "Grok Bot", "WorkBuddy"])
+        precondition(deleteStore.deleteSkill(geminiSharedSkill, syncAcrossAssistants: true))
+        precondition(!fm.fileExists(atPath: agentsShared.path))
+        precondition(!fm.fileExists(atPath: wbShared.path))
+        precondition((try? fm.attributesOfItem(atPath: codexSkills.appendingPathComponent("shared-suite").path)) == nil)
+        precondition((try? fm.attributesOfItem(atPath: grokSkills.appendingPathComponent("shared-suite").path)) == nil)
+        precondition((try? fm.attributesOfItem(atPath: wbSkills.appendingPathComponent("sub-a").path)) == nil)
+        precondition(fm.fileExists(atPath: pluginSkillDir.appendingPathComponent("SKILL.md").path))
+        precondition(deleteStore.collections.first { $0.id == deleteCollection.id }?.skillPaths.isEmpty == true)
+        precondition(!deleteStore.pinnedPaths.contains(codexSharedSkill.path))
+        precondition(!deleteStore.workflowSkills().contains { $0.name == "shared-suite" })
+        precondition(!deleteStore.groupsForTab(.workbuddy).flatMap(\.sections).flatMap(\.skills).contains { $0.name == "shared-suite" })
+
+        let geminiReverseSkill = deleteStore.workflowSkills().first { $0.name == "reverse-tool" }!
+        precondition(deleteStore.deleteSkill(geminiReverseSkill, syncAcrossAssistants: true))
+        precondition(!fm.fileExists(atPath: codexReverse.path))
+        precondition((try? fm.attributesOfItem(atPath: agentsReverse.path)) == nil)
+        precondition((try? fm.attributesOfItem(atPath: grokSkills.appendingPathComponent("reverse-tool").path)) == nil)
+        precondition((try? fm.attributesOfItem(atPath: wbSkills.appendingPathComponent("reverse-tool").path)) == nil)
+
+        let standaloneSkill = deleteStore.allSkills.first { $0.name == "standalone-note" }!
+        precondition(deleteStore.deleteSkill(standaloneSkill, syncAcrossAssistants: false))
+        precondition(!fm.fileExists(atPath: grokSkills.appendingPathComponent("standalone-note.md").path))
+        precondition(fm.fileExists(atPath: grokSkills.path))
     }
-    print("通过：多行说明、元数据隔离、中文显示、原始调用名、来源分组、加宽面板、自动分类、手动纠正、自定义分类、重启恢复、跨来源链接、四平台副本合并、来源筛选、插件隔离、旧分类兼容")
+    print("通过：多行说明、元数据隔离、中文显示、原始调用名、来源分组、加宽面板、自动分类、手动纠正、自定义分类、重启恢复、跨来源链接、四平台副本合并、来源筛选、插件隔离、旧分类兼容、工作流同步删除")
     exit(0)
 }
 if CommandLine.arguments.contains("--plugin-catalog-json") {

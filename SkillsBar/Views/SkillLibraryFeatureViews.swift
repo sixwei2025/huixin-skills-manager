@@ -608,6 +608,7 @@ private func severityColor(_ severity: SkillHealthSeverity) -> Color {
 struct WorkflowLibraryView: View {
     @ObservedObject var store: SkillStore
     let onSelectSkill: (Skill) -> Void
+    let onDeleteSkill: (Skill) -> Void
     @AppStorage("workflowLibrarySelection") private var selection = "all"
     @State private var categoryName = ""
     @State private var isAddingSkills = false
@@ -776,32 +777,50 @@ struct WorkflowLibraryView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             Menu {
-                Menu("调整工作流归类") {
-                    ForEach(WorkflowCategory.allCases) { category in
-                        Button { store.setWorkflowCategory(category, for: skill) } label: {
-                            Label(category.title, systemImage: store.workflowCategory(for: skill) == category ? "checkmark" : category.icon)
-                        }
-                    }
-                    Divider()
-                    Button("恢复自动归类") { store.setWorkflowCategory(nil, for: skill) }
-                }
-                Menu("加入或移出我的分类") {
-                    ForEach(store.orderedCollections) { collection in
-                        Button { store.toggleWorkflowMembership(skill, in: collection) } label: {
-                            Label(collection.name, systemImage: store.workflowContains(collection, skill: skill) ? "checkmark" : "folder")
-                        }
-                    }
-                    Divider()
-                    Button("新建分类并加入") { createCategory(including: skill) }
-                }
-                if let collection = selectedCollection {
-                    Button("移出当前分类") { store.toggleWorkflowMembership(skill, in: collection) }
-                }
+                workflowCardMenuItems(for: skill)
             } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.secondary) }
-            .menuStyle(.borderlessButton).fixedSize().help("管理技能分类")
+            .menuStyle(.borderlessButton).fixedSize().help("管理技能分类与删除")
         }
         .padding(12).background(Color.primary.opacity(0.055))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .contextMenu {
+            Button("打开详情") { onSelectSkill(skill) }
+            Divider()
+            workflowCardMenuItems(for: skill)
+            Divider()
+            Button("在 Finder 中显示") { SkillStore.revealInFinder(skill) }
+        }
+    }
+
+    @ViewBuilder
+    private func workflowCardMenuItems(for skill: Skill) -> some View {
+        Menu("调整工作流归类") {
+            ForEach(WorkflowCategory.allCases) { category in
+                Button { store.setWorkflowCategory(category, for: skill) } label: {
+                    Label(category.title, systemImage: store.workflowCategory(for: skill) == category ? "checkmark" : category.icon)
+                }
+            }
+            Divider()
+            Button("恢复自动归类") { store.setWorkflowCategory(nil, for: skill) }
+        }
+        Menu("加入或移出我的分类") {
+            ForEach(store.orderedCollections) { collection in
+                Button { store.toggleWorkflowMembership(skill, in: collection) } label: {
+                    Label(collection.name, systemImage: store.workflowContains(collection, skill: skill) ? "checkmark" : "folder")
+                }
+            }
+            Divider()
+            Button("新建分类并加入") { createCategory(including: skill) }
+        }
+        if let collection = selectedCollection {
+            Button("移出当前分类") { store.toggleWorkflowMembership(skill, in: collection) }
+        }
+        if !skill.source.isProjectSkill {
+            Divider()
+            Button("删除技能", role: .destructive) {
+                onDeleteSkill(skill)
+            }
+        }
     }
     private func createCategory() { createCategory(including: nil) }
     private func createCategory(including skill: Skill?) {

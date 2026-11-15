@@ -8,6 +8,7 @@ struct SkillDetailView: View {
     var validationSummary: SkillValidationSummary? = nil
     let collections: [SkillCollection]
     let skillCollections: [SkillCollection]
+    var deleteConfirmationMessage: String? = nil
     let onBack: () -> Void
     let onDelete: (Skill) -> Bool
     let onTogglePin: (Skill) -> Void
@@ -412,15 +413,15 @@ struct SkillDetailView: View {
             }
         }
         .frame(width: SkillsBarLayout.windowWidth, height: SkillsBarLayout.detailHeight)
-        .alert("Move Skill to Trash", isPresented: $showDeleteConfirmation) {
+        .alert("删除技能", isPresented: $showDeleteConfirmation) {
             Button("取消", role: .cancel) {}
-            Button("Move to Trash", role: .destructive) {
+            Button("移至废纸篓", role: .destructive) {
                 if onDelete(skill) {
                     onBack()
                 }
             }
         } message: {
-            Text("Move \"\(skill.displayName)\" and its folder to Trash?")
+            Text(deleteConfirmationMessage ?? "将「\(skill.displayName)」及其文件夹移至废纸篓？")
         }
     }
 
