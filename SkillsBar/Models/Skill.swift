@@ -7,19 +7,23 @@ struct Skill: Identifiable, Hashable {
     let source: SkillSource
     let path: String
     var version: String?
+    var customDisplayName: String? = nil
+    var author: String? = nil
     var body: String = ""
     var lastModified: Date?
     var folderContents: [String] = []
     var folderDirectories: Set<String> = []
     var directoryContents: [String: [String]] = [:]
 
-    init(name: String, description: String, source: SkillSource, path: String, version: String? = nil, body: String = "", lastModified: Date? = nil, folderContents: [String] = [], folderDirectories: Set<String> = [], directoryContents: [String: [String]] = [:]) {
+    init(name: String, description: String, source: SkillSource, path: String, version: String? = nil, customDisplayName: String? = nil, author: String? = nil, body: String = "", lastModified: Date? = nil, folderContents: [String] = [], folderDirectories: Set<String> = [], directoryContents: [String: [String]] = [:]) {
         self.id = path
         self.name = name
         self.description = description
         self.source = source
         self.path = path
         self.version = version
+        self.customDisplayName = customDisplayName
+        self.author = author
         self.body = body
         self.lastModified = lastModified
         self.folderContents = folderContents
@@ -29,9 +33,24 @@ struct Skill: Identifiable, Hashable {
 
     var displayName: String {
         let original = name.isEmpty ? URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent : name
-        let translated = ChineseSkillNames.name(original, description: description, path: path)
-        let branded = originCategory == .selfDeveloped && !translated.hasPrefix("汇芯") ? "汇芯\(translated)" : translated
-        return String(branded.prefix(13))
+        let translated = ChineseSkillNames.name(
+            original,
+            description: description,
+            customDisplayName: customDisplayName,
+            body: body,
+            path: path
+        )
+        let branded: String
+        if originCategory == .selfDeveloped {
+            if translated.hasPrefix("汇芯") {
+                branded = translated
+            } else {
+                branded = "汇芯\(translated)"
+            }
+        } else {
+            branded = translated
+        }
+        return branded.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var shortDescription: String {
@@ -127,26 +146,82 @@ struct Skill: Identifiable, Hashable {
         }
     }
 
-    /// Common origin bucket used by all AI-agent tabs. Most local user skills
-    /// are Yuan's own suites; preserve a clear third-party bucket for adapted
-    /// open-source skills without changing their physical paths.
+    /// Common origin bucket used by all AI-agent tabs. Only explicitly branded
+    /// Huixin / Yuan Liuwei skills (or known self-developed suites) are treated
+    /// as self-developed; newly installed external skills default to third-party.
     var originCategory: SkillOriginCategory {
         if source.defaultOriginCategory != .selfDeveloped {
             return source.defaultOriginCategory
         }
 
-        let normalized = "\(path)\n\(body)".lowercased()
+        let normalized = "\(name)\n\(author ?? "")\n\(path)\n\(body)".lowercased()
         let thirdPartyMarkers = [
             "alchaincyf",
             "基于花叔",
             "原作者",
             "开源项目适配",
-            "adapted from"
+            "adapted from",
+            "向阳乔木",
+            "qiaomu-wx-video",
+            "wx-downloader",
+            "video-shotcraft"
         ]
         if thirdPartyMarkers.contains(where: normalized.contains) {
             return .thirdParty
         }
-        return .selfDeveloped
+
+        if let authorText = author?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !authorText.isEmpty {
+            let authorLower = authorText.lowercased()
+            let isHuixinAuthor = authorLower.contains("袁六伟") || authorLower.contains("汇芯") || authorLower.contains("huixin")
+            return isHuixinAuthor ? .selfDeveloped : .thirdParty
+        }
+
+        let selfDevelopedMarkers = ["袁六伟", "台州汇芯", "汇芯", "huixin"]
+        if selfDevelopedMarkers.contains(where: normalized.contains) {
+            return .selfDeveloped
+        }
+
+        let selfDevelopedNames: Set<String> = [
+            "workbuddy-credits-manager",
+            "wechat-autopilot",
+            "wechat-auto-publisher",
+            "zsxq-suite",
+            "topic-radar-suite",
+            "topic-miner",
+            "选题挖掘机",
+            "social-matrix-suite",
+            "company-delivery-hub",
+            "getnote-suite",
+            "lark-suite",
+            "local-video-hub",
+            "talking-head-video",
+            "video-clipper-suite",
+            "promo-video-studio",
+            "trending-news-video",
+            "ai-tool-review-wechat",
+            "sec-skill-evaluator",
+            "validate-with-ai",
+            "geo-optimizer",
+            "auto-tutorial",
+            "huashu-creative-suite",
+            "claude-mem-huixin",
+            "huixin-vibe-knowledge",
+            "huixin-vibe-obsidian-gold",
+            "huixin-vibe-neon-matrix",
+            "huixin-vibe-blueprint-lab",
+            "huixin-vibe-paper-ink",
+            "huixin-vibe-flat-card",
+            "huixin-vibe-cosmos-hud",
+            "huixin-video-cover",
+            "huixin-card-studio",
+            "huixin-moments-writer"
+        ]
+        if selfDevelopedNames.contains(name.lowercased()) {
+            return .selfDeveloped
+        }
+
+        return .thirdParty
     }
 }
 
@@ -302,6 +377,15 @@ enum ChineseSkillNames {
         "video-clipper-suite": "短视频智能剪辑与切片总控",
         "auto-tutorial": "可视化教程视频",
         "huixin-product-expert": "汇芯产品顾问",
+        "huixin-video-cover": "汇芯视频封面工坊",
+        "huixin-vibe-knowledge": "汇芯·Vibe知识大赏引擎",
+        "huixin-vibe-obsidian-gold": "汇芯·黑金极简推理流",
+        "huixin-vibe-neon-matrix": "汇芯·赛博点阵实验流",
+        "huixin-vibe-blueprint-lab": "汇芯·工程蓝图拆解流",
+        "huixin-vibe-paper-ink": "汇芯·羊皮纸手稿人文流",
+        "huixin-vibe-flat-card": "汇芯·高饱和扁平认知流",
+        "huixin-vibe-cosmos-hud": "汇芯·宇宙深空 HUD 纪实流",
+        "huixin-moments-writer": "汇芯朋友圈文案工坊",
         "humanize-ai-text": "自然文风改写",
         "hyperframes": "网页视频制作",
         "hyperframes cli": "网页视频制作命令行",
@@ -433,7 +517,23 @@ enum ChineseSkillNames {
         "xiaolongxia-skill-coach": "小龙虾技能教练",
         "xlsx": "电子表格编辑",
         "zhihu-publisher": "知乎内容发布",
+        "huixin-card-studio": "汇芯贴图工坊",
+        "huixin-web-ops": "汇芯爆款网站运维",
+        "mcp-app-development": "工具应用开发",
+        "promo-video-studio": "全场景商业宣传片",
+        "qiaomu-wx-video": "乔木视频号下载",
+        "topic-miner": "选题挖掘机",
+        "trending-news-video": "热点新闻深扒视频",
+        "video-shotcraft": "电影感产品宣传片",
+        "wechat-auto-publisher": "公众号自动发布",
+        "wx-downloader": "视频号下载器",
+        "zsxq": "知识星球命令行",
+        "zsxq-article-publish": "知识星球长文发布",
+        "zsxq-reader": "知识星球内容读取",
         "zsxq-suite": "知识星球运营助手",
+        "汇芯贴图工坊": "汇芯贴图工坊",
+        "知识星球文章发布": "知识星球长文发布",
+        "选题挖掘机": "选题挖掘机",
         "中文markdown转pdf": "中文长文转便携文档",
         "公众号文章转md": "公众号文章转纯文本文稿",
         "公众号文章转pdf": "公众号文章转便携文档",
@@ -446,14 +546,50 @@ enum ChineseSkillNames {
         "知识星球cli": "知识星球命令行",
         "课程资料pdf设计": "课程资料文档设计",
         "高端ppt设计": "高端演示文稿设计",
+        "huixin-workbuddy-tutorial": "汇芯·WorkBuddy实操教程视频",
+        "workbuddy-tutorial": "汇芯·WorkBuddy实操教程视频",
     ]
-    static func name(_ original: String, description: String = "", path: String = "") -> String {
+    static func name(
+        _ original: String,
+        description: String = "",
+        customDisplayName: String? = nil,
+        body: String = "",
+        path: String = ""
+    ) -> String {
         if let translated = names[original.lowercased()] { return translated }
+        if let explicit = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        // Try first Markdown heading `# 标题` in SKILL.md body if it contains Chinese.
+        if let headingLine = body.components(separatedBy: .newlines).first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("# ") }) {
+            let rawHeading = headingLine
+                .trimmingCharacters(in: .whitespaces)
+                .dropFirst(2)
+                .replacingOccurrences(of: "（[^）]*）|\\([^)]*\\)", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if rawHeading.range(of: "[\u{4E00}-\u{9FFF}]{2,}", options: .regularExpression) != nil {
+                return rawHeading
+            }
+        }
         guard original.range(of: "[A-Za-z]", options: .regularExpression) != nil else { return original }
-        let chinese = description.components(separatedBy: .newlines).first(where: { $0.range(of: "[\u{4E00}-\u{9FFF}]", options: .regularExpression) != nil }) ?? ""
-        if !chinese.isEmpty {
-            let cleaned = chinese.replacingOccurrences(of: "[A-Za-z0-9_`/:.()\\-]+", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-            if cleaned.count >= 3 { return String(cleaned.prefix(22)) }
+        let chineseLine = description
+            .components(separatedBy: .newlines)
+            .first(where: { $0.range(of: "[\u{4E00}-\u{9FFF}]", options: .regularExpression) != nil }) ?? ""
+        if !chineseLine.isEmpty {
+            // 优先抽取最先出现的完整中文短语，避免英文句子中的逗号/斜杠残留成 "，，，"
+            let stripped = chineseLine
+                .replacingOccurrences(of: "[A-Za-z0-9_`/:.()\\[\\]{}<>\"',;!?~*#|\\-]+", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "（）|「」|【】|《》", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "，。、：；！？,.;:·-")))
+            if let firstClause = stripped.components(separatedBy: CharacterSet(charactersIn: "，。；！？")).first?.trimmingCharacters(in: .whitespaces),
+               firstClause.range(of: "[\u{4E00}-\u{9FFF}]{3,}", options: .regularExpression) != nil {
+                return firstClause
+            }
+            if stripped.range(of: "[\u{4E00}-\u{9FFF}]{3,}", options: .regularExpression) != nil {
+                return stripped
+            }
         }
         return "自定义技能"
     }

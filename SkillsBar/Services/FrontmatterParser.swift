@@ -4,6 +4,8 @@ struct FrontmatterParser {
     struct Result {
         var name: String = ""
         var description: String = ""
+        var displayName: String?
+        var author: String?
         var version: String?
         var body: String = ""
     }
@@ -32,10 +34,15 @@ struct FrontmatterParser {
         while i < end {
             let line = lines[i]
             let stripped = line.trimmingCharacters(in: .whitespaces)
-            guard !line.hasPrefix(" "), !line.hasPrefix("\t"), let colon = stripped.firstIndex(of: ":") else { i += 1; continue }
-            let key = String(stripped[..<colon]).lowercased()
+            guard let colon = stripped.firstIndex(of: ":") else {
+                i += 1
+                continue
+            }
+            let key = String(stripped[..<colon]).trimmingCharacters(in: .whitespaces).lowercased()
             var value = String(stripped[stripped.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            if ["|", "|-", "|+", ">", ">-", ">+"].contains(value) {
+            let isIndented = line.hasPrefix(" ") || line.hasPrefix("\t")
+
+            if !isIndented && ["|", "|-", "|+", ">", ">-", ">+"].contains(value) {
                 let folded = value.hasPrefix(">")
                 var block: [String] = []
                 i += 1
@@ -50,11 +57,33 @@ struct FrontmatterParser {
                 value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
                 i += 1
             }
+
             switch key {
-            case "name": result.name = value
-            case "description": result.description = value
-            case "version": result.version = value
-            default: break
+            case "name":
+                if !value.isEmpty && (result.name.isEmpty || !isIndented) {
+                    result.name = value
+                }
+            case "description":
+                if !isIndented {
+                    result.description = value
+                }
+            case "display_name", "display-name", "displayname", "title", "zh_name", "zh-name", "chinese_name":
+                if !value.isEmpty {
+                    // Top-level or first explicit display name wins
+                    if result.displayName == nil || !isIndented {
+                        result.displayName = value
+                    }
+                }
+            case "author":
+                if !value.isEmpty && (result.author == nil || !isIndented) {
+                    result.author = value
+                }
+            case "version":
+                if !isIndented {
+                    result.version = value
+                }
+            default:
+                break
             }
         }
         result.body = lines.dropFirst(end + 1).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

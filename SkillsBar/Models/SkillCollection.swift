@@ -176,7 +176,7 @@ enum WorkflowCategory: String, CaseIterable, Identifiable, Codable {
     private var keywords: [String] {
         switch self {
         case .publishing: return ["wechat", "公众号", "朋友圈", "小红书", "小绿书", "copywriter", "writing", "writer", "标题", "文风", "content-planner", "social-matrix"]
-        case .video: return ["video", "视频", "motion", "remotion", "hyperframes", "hyperframe", "hypit", "字幕", "配音", "gsap", "动画", "成片", "口播"]
+        case .video: return ["video", "视频", "motion", "remotion", "hyperframes", "hyperframe", "hypit", "字幕", "配音", "gsap", "动画", "成片", "口播", "vibe", "知识大赏", "obsidian-gold", "neon-matrix", "blueprint-lab", "paper-ink", "flat-card", "cosmos-hud", "video-cover"]
         case .business: return ["company-delivery", "企业交付", "商单", "作战中枢", "课程交付", "project-manager", "项目管理", "商业", "customer", "sales", "crm", "proposal"]
         case .knowledge: return ["getnote", "得到", "obsidian", "知识库", "知识管理", "weread", "微信读书", "book-to-skill", "笔记", "知识星球", "zsxq"]
         case .research: return ["research", "调研", "aihot", "trending", "radar", "雷达", "选题", "monitor", "舆情", "评测", "review", "validate-with-ai", "搜索", "search"]

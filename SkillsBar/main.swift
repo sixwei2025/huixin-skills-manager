@@ -8,7 +8,17 @@ if CommandLine.arguments.contains("--self-test") {
     precondition(literal.description == "第一行\n第二行")
     let skill = Skill(name: "workbuddy-credits-manager", description: "", source: .workbuddy, path: "/tmp/workbuddy-credits-manager/SKILL.md")
     precondition(skill.displayName == "汇芯工作搭档积分管家" && skill.triggerCommand == "workbuddy-credits-manager")
-    precondition(skill.displayName.count <= 13)
+    let metadataSkillDoc = FrontmatterParser.parse(content: "---\nname: huixin-workbuddy-tutorial\nmetadata:\n  display_name: 汇芯·WorkBuddy实操教程视频\nauthor: 袁六伟 · 台州汇芯\ndescription: 教程\n---\n# 汇芯·WorkBuddy实操教程视频\n正文")!
+    precondition(metadataSkillDoc.displayName == "汇芯·WorkBuddy实操教程视频")
+    let longSkill = Skill(name: "huixin-workbuddy-tutorial", description: metadataSkillDoc.description, source: .workbuddy, path: "/tmp/huixin-workbuddy-tutorial/SKILL.md", customDisplayName: metadataSkillDoc.displayName, author: metadataSkillDoc.author, body: metadataSkillDoc.body)
+    precondition(longSkill.displayName == "汇芯·WorkBuddy实操教程视频")
+    precondition(longSkill.displayName.count > 13)
+    let explicitSkillDoc = FrontmatterParser.parse(content: "---\nname: brand-new-tool\ndisplay_name: 全新效率工具\nauthor: 第三方作者\ndescription: A tool, with, commas.\n---\n# 新工具\n正文")!
+    precondition(explicitSkillDoc.displayName == "全新效率工具" && explicitSkillDoc.author == "第三方作者")
+    let thirdPartySkill = Skill(name: "brand-new-tool", description: explicitSkillDoc.description, source: .workbuddy, path: "/tmp/brand-new-tool/SKILL.md", customDisplayName: explicitSkillDoc.displayName, author: explicitSkillDoc.author, body: explicitSkillDoc.body)
+    precondition(thirdPartySkill.originCategory == .thirdParty && thirdPartySkill.displayName == "全新效率工具")
+    let commaSafeSkill = Skill(name: "unmapped-en-skill", description: "Create videos, charts, and decks. 用真实页面制作视频", source: .workbuddy, path: "/tmp/unmapped/SKILL.md")
+    precondition(commaSafeSkill.displayName == "用真实页面制作视频")
     precondition(SkillStore.SkillTab.workbuddy.groupID == "workbuddy")
     precondition(SkillsBarLayout.windowWidth == 760)
     // Isolate persistence tests from the real user's categories.

@@ -258,6 +258,6 @@ struct SkillScanner {
             }
         }
 
-        return Skill(name: name, description: description, source: source, path: path, version: parsed.version, body: parsed.body, lastModified: lastModified, folderContents: allItems, folderDirectories: directories, directoryContents: dirContents)
+        return Skill(name: name, description: description, source: source, path: path, version: parsed.version, customDisplayName: parsed.displayName, author: parsed.author, body: parsed.body, lastModified: lastModified, folderContents: allItems, folderDirectories: directories, directoryContents: dirContents)
     }
 }

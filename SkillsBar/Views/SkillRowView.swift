@@ -57,6 +57,7 @@ struct SkillRowView: View {
                     Text(skill.displayName)
                         .font(.system(size: 14, weight: .medium))
                         .lineLimit(1)
+                        .help(skill.displayName)
                     if showSourceBadge {
                         Text(sourceBadgeText)
                             .font(.system(size: 9, weight: .bold))

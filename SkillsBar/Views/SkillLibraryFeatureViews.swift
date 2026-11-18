@@ -612,6 +612,32 @@ struct WorkflowLibraryView: View {
     @AppStorage("workflowLibrarySelection") private var selection = "all"
     @State private var categoryName = ""
     @State private var isAddingSkills = false
+    @State private var videoSubFilter = "全部"
+
+    private let videoSubCategories = ["全部", "Vibe知识", "品牌宣传片", "口播短视频", "实操教程", "热点快评", "产品带货"]
+
+    private func videoSubCategory(for skill: Skill) -> String? {
+        let hay = "\(skill.name) \(skill.displayName) \(skill.description)".lowercased()
+        if ["vibe", "知识大赏", "obsidian-gold", "neon-matrix", "blueprint-lab", "paper-ink", "flat-card", "cosmos-hud"].contains(where: { hay.contains($0) }) {
+            return "Vibe知识"
+        }
+        if ["带货", "好物", "种草", "卖货", "product-promo"].contains(where: { hay.contains($0) }) {
+            return "产品带货"
+        }
+        if ["热点", "快评", "新闻", "trending-news"].contains(where: { hay.contains($0) }) {
+            return "热点快评"
+        }
+        if ["教程", "实操", "演示", "auto-tutorial", "video-shotcraft"].contains(where: { hay.contains($0) }) {
+            return "实操教程"
+        }
+        if ["口播", "真人", "talking-head"].contains(where: { hay.contains($0) }) {
+            return "口播短视频"
+        }
+        if ["宣传片", "品牌", "画书", "promo-video", "huashu-creative", "hypit", "video-cover", "封面"].contains(where: { hay.contains($0) }) {
+            return "品牌宣传片"
+        }
+        return nil
+    }
 
     private var skills: [Skill] { store.workflowSkills() }
     private var selectedCollection: SkillCollection? {
@@ -629,7 +655,8 @@ struct WorkflowLibraryView: View {
             } else {
                 inCategory = true
             }
-            return inCategory && (query.isEmpty || "\(skill.displayName) \(skill.name) \(skill.description)".lowercased().contains(query))
+            let matchesSub = selectedWorkflow != .video || videoSubFilter == "全部" || videoSubCategory(for: skill) == videoSubFilter
+            return inCategory && matchesSub && (query.isEmpty || "\(skill.displayName) \(skill.name) \(skill.description)".lowercased().contains(query))
         }
     }
     var body: some View {
@@ -662,7 +689,7 @@ struct WorkflowLibraryView: View {
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(height: 490)
+        .frame(height: 540)
         .background(Color.primary.opacity(0.035))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal, 12)
@@ -754,6 +781,28 @@ struct WorkflowLibraryView: View {
                     Text("本地自动分类 · 可手动调整").font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
             }.font(.system(size: 12))
+            if selectedWorkflow == .video {
+                let videoSkills = skills.filter { store.workflowCategory(for: $0) == .video }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(videoSubCategories, id: \.self) { sub in
+                            let count = sub == "全部" ? videoSkills.count : videoSkills.filter { videoSubCategory(for: $0) == sub }.count
+                            let active = videoSubFilter == sub
+                            Button {
+                                videoSubFilter = sub
+                            } label: {
+                                Text("\(sub) (\(count))")
+                                    .font(.system(size: 11, weight: active ? .semibold : .regular))
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(active ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06))
+                                    .foregroundStyle(active ? Color.accentColor : Color.secondary)
+                                    .clipShape(Capsule())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
         }
     }
     private func skillCard(_ skill: Skill) -> some View {
@@ -766,7 +815,11 @@ struct WorkflowLibraryView: View {
             }
             Button { onSelectSkill(skill) } label: {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(skill.displayName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text(skill.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(skill.displayName)
                     Text(skill.shortDescription).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                     HStack(spacing: 6) {
                         Text(skill.source.groupTitle)

@@ -42,12 +42,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Popover
         popover = NSPopover()
-        popover.contentSize = NSSize(width: SkillsBarLayout.windowWidth, height: SkillsBarLayout.popoverHeight)
         popover.behavior = .transient
         popover.animates = true
-        popover.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: MenuBarView(store: store, usageTracker: usageTracker)
         )
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
 
         // Status item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
