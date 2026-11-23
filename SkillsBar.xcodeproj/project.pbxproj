@@ -21,7 +21,7 @@
 		A10001012 /* SectionHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002012; };
 		A10001013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10002013; };
 		A10001014 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002015; };
-		A10001015 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002016; };
+		A10001015 /* CLIRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002016; };
 		A10001016 /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002017; };
 		A10001017 /* AgentSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002018; };
 		A10001018 /* AgentGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002019; };
@@ -64,7 +64,7 @@
 		A10002013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10002014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10002015 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
-		A10002016 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A10002016 /* CLIRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRunner.swift; sourceTree = "<group>"; };
 		A10002017 /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
 		A10002018 /* AgentSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSource.swift; sourceTree = "<group>"; };
 		A10002019 /* AgentGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGroup.swift; sourceTree = "<group>"; };
@@ -113,7 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				A10002001 /* SkillsBarApp.swift */,
-				A10002016 /* main.swift */,
+				A10002016 /* CLIRunner.swift */,
 				A10002028 /* SkillsBarLayout.swift */,
 				A10002014 /* Info.plist */,
 				A10002013 /* Assets.xcassets */,
@@ -269,7 +269,7 @@
 				A10001011 /* SkillDetailView.swift in Sources */,
 				A10001012 /* SectionHeaderView.swift in Sources */,
 				A10001014 /* AboutView.swift in Sources */,
-				A10001015 /* main.swift in Sources */,
+				A10001015 /* CLIRunner.swift in Sources */,
 				A10001016 /* Agent.swift in Sources */,
 				A10001017 /* AgentSource.swift in Sources */,
 				A10001018 /* AgentGroup.swift in Sources */,
@@ -435,7 +435,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cn.huixin.skillsmanager;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.huixin.skillsmanager.bar;
 				PRODUCT_NAME = HuixinSkillsManager;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -462,7 +462,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cn.huixin.skillsmanager;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.huixin.skillsmanager.bar;
 				PRODUCT_NAME = HuixinSkillsManager;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
